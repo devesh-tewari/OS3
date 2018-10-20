@@ -11,7 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "devices/timer.h"
+//#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -271,7 +271,7 @@ thread_current (void)
   ASSERT (is_thread (t));
   //printf("\n\n%d\n\n",t->status);
 
-  //ASSERT (t->status == THREAD_RUNNING);
+  ASSERT (t->status == THREAD_RUNNING);
 
   return t;
 }
@@ -587,10 +587,22 @@ allocate_tid (void)
   return tid;
 }
 
+bool
+cmp (struct list_elem* sleeping_elem, struct list_elem* e, void* x)
+{
+  struct thread * sleeping_thread = list_entry (sleeping_elem, struct thread,
+                                                elem);
+  struct thread * t_list = list_entry (e, struct thread, elem);
+  if (sleeping_thread->wake_up_tick < t_list->wake_up_tick)
+    return true;
+  return false;
+}
+
 void
 thread_sleep (int64_t start, int64_t ticks)
 {
   //printf("\n\nhere\n\n");
+  //TRACE("sleeping");
   ASSERT (intr_get_level () == INTR_ON);
 
   struct thread * current_th;
@@ -602,32 +614,28 @@ thread_sleep (int64_t start, int64_t ticks)
 
   current_list_elem = &(current_th->elem);
   //list_remove (current_list_elem);
-	current_th->status = THREAD_BLOCKED;
+  //current_th->status = THREAD_BLOCKED;
 
-  list_push_back (&sleep_list, &current_th->sleep_elem);//, less_wakeup_time, NULL);
+  bool flag = true;
+  list_insert_ordered (&sleep_list, &current_th->elem, cmp, &flag);
+  //list_push_back (&sleep_list, &current_th->sleep_elem);//, less_wakeup_time, NULL);
   thread_block ();
+
 
 	//schedule ();
   intr_set_level (old_level);
 }
 
-/*bool
-cmp (struct list_elem* sleeping_elem, struct list_elem* e, void* x)
-{
-  int64_t cur_ticks = timer_ticks ();
-  if (sleeping_elem->wake_up_tick < e->wake_up_tick)
-    return true;
-  return false;
-}*/
-
 void
 thread_wake (int64_t ticks)
 {
-  struct list_elem *elem;
+  while ( ! list_empty(&sleep_list) )
+    {
+      struct list_elem *el;
 
-  ASSERT (intr_get_level () == INTR_OFF);
+      ASSERT (intr_get_level () == INTR_OFF);
 
-  for (elem = list_begin(&sleep_list); elem != list_end(&sleep_list); )
+  /*for (elem = list_begin(&sleep_list); elem != list_end(&sleep_list); )
     {
       struct thread *sleeping_thread = list_entry (elem, struct thread,
                                                    sleep_elem);
@@ -642,6 +650,19 @@ thread_wake (int64_t ticks)
         }
       else
           elem = list_next (elem);
+    }*/
+      el = list_begin (&sleep_list);
+      //list_elem = list_pop_front (&sleep_list);
+      struct thread *sleeping_thread = list_entry (el, struct thread,
+                                                   elem);
+      if (sleeping_thread->wake_up_tick <= ticks)
+        {
+          el = list_pop_front (&sleep_list);
+          sleeping_thread->wake_up_tick = 0;
+          thread_unblock (sleeping_thread);
+        }
+      else
+          break;
     }
 }
 
