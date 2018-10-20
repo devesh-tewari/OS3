@@ -5,13 +5,18 @@
 #include <list.h>
 #include <stdint.h>
 
+/* List of processes in THREAD_BLOCK state, that is, processes
+   that are ready to run but not actually running. */
+static struct list sleep_list;
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
     THREAD_RUNNING,     /* Running thread. */
     THREAD_READY,       /* Not running but ready to run. */
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
-    THREAD_DYING        /* About to be destroyed. */
+    THREAD_DYING,       /* About to be destroyed. */
+    //THREAD_SLEEPING     /* Sleeping for a specified amount of ticks. */
   };
 
 /* Thread identifier type.
@@ -88,6 +93,8 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int64_t wake_up_tick;
+    struct list_elem sleep_elem;
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
@@ -110,7 +117,7 @@ extern bool thread_mlfqs;
 void thread_init (void);
 void thread_start (void);
 
-void thread_tick (void);
+void thread_tick (int64_t);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
@@ -137,5 +144,8 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_sleep (int64_t, int64_t);
+void thread_wake (int64_t);
 
 #endif /* threads/thread.h */
