@@ -73,7 +73,7 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
 bool
-cmp_pri (struct list_elem* a, struct list_elem* b, void* x)
+cmp_pri (struct list_elem* a, struct list_elem* b, void* aux)
 {
   struct thread * a_th = list_entry (a, struct thread, elem);
   struct thread * b_th = list_entry (b, struct thread, elem);
