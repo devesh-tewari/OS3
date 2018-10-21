@@ -72,6 +72,16 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+bool
+cmp_pri (struct list_elem* a, struct list_elem* b, void* x)
+{
+  struct thread * a_th = list_entry (a, struct thread, elem);
+  struct thread * b_th = list_entry (b, struct thread, elem);
+  if (a_th->priority > b_th->priority)
+    return true;
+  return false;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -205,6 +215,10 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  enum intr_level old_level = intr_disable ();
+  check_preemption ();
+  intr_set_level (old_level);
+
   return tid;
 }
 
@@ -241,7 +255,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, cmp_pri, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -266,11 +280,7 @@ thread_current (void)
      have overflowed its stack.  Each thread has less than 4 kB
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
-  //printf("abc\nabc\n");
-  //printf("\n\n%d\n\n",t->status);
   ASSERT (is_thread (t));
-  //printf("\n\n%d\n\n",t->status);
-
   ASSERT (t->status == THREAD_RUNNING);
 
   return t;
@@ -316,7 +326,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, cmp_pri, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -343,7 +353,13 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
+  //thread_current ()->priority = new_priority;
+  enum intr_level old_level = intr_disable ();
+  int cur_priority = thread_current ()->priority;
   thread_current ()->priority = new_priority;
+  if (new_priority < cur_priority)
+    check_preemption ();
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's priority. */
@@ -588,7 +604,7 @@ allocate_tid (void)
 }
 
 bool
-cmp (struct list_elem* sleeping_elem, struct list_elem* e, void* x)
+cmp (struct list_elem* sleeping_elem, struct list_elem* e, void* aux)
 {
   struct thread * sleeping_thread = list_entry (sleeping_elem, struct thread,
                                                 elem);
@@ -601,8 +617,6 @@ cmp (struct list_elem* sleeping_elem, struct list_elem* e, void* x)
 void
 thread_sleep (int64_t start, int64_t ticks)
 {
-  //printf("\n\nhere\n\n");
-  //TRACE("sleeping");
   ASSERT (intr_get_level () == INTR_ON);
 
   struct thread * current_th;
@@ -611,48 +625,24 @@ thread_sleep (int64_t start, int64_t ticks)
 
   current_th = thread_current ();
   current_th->wake_up_tick = timer_ticks () + ticks;
-
   current_list_elem = &(current_th->elem);
-  //list_remove (current_list_elem);
-  //current_th->status = THREAD_BLOCKED;
 
-  bool flag = true;
-  list_insert_ordered (&sleep_list, &current_th->elem, cmp, &flag);
-  //list_push_back (&sleep_list, &current_th->sleep_elem);//, less_wakeup_time, NULL);
+  list_insert_ordered (&sleep_list, &current_th->elem, cmp, NULL);
+
   thread_block ();
-
-
-	//schedule ();
   intr_set_level (old_level);
 }
 
 void
 thread_wake (int64_t ticks)
 {
-  while ( ! list_empty(&sleep_list) )
+  while (!list_empty (&sleep_list))
     {
       struct list_elem *el;
 
       ASSERT (intr_get_level () == INTR_OFF);
 
-  /*for (elem = list_begin(&sleep_list); elem != list_end(&sleep_list); )
-    {
-      struct thread *sleeping_thread = list_entry (elem, struct thread,
-                                                   sleep_elem);
-      //ASSERT (is_thread (sleeping_thread));
-      if (sleeping_thread->wake_up_tick <= ticks)
-        {
-          //TRACE ("wakeup %d sleep-util %"PRId64" when %"PRId64"\n",
-                 //t->tid, t->wake_up_tick, ticks);
-          elem = list_remove (&sleeping_thread->sleep_elem);
-          sleeping_thread->wake_up_tick = 0;
-          thread_unblock (sleeping_thread);
-        }
-      else
-          elem = list_next (elem);
-    }*/
       el = list_begin (&sleep_list);
-      //list_elem = list_pop_front (&sleep_list);
       struct thread *sleeping_thread = list_entry (el, struct thread,
                                                    elem);
       if (sleeping_thread->wake_up_tick <= ticks)
@@ -664,6 +654,19 @@ thread_wake (int64_t ticks)
       else
           break;
     }
+}
+
+void
+check_preemption (void)
+{
+  if (list_empty (&ready_list))
+    return;
+
+  struct thread* cur_thread = thread_current ();
+  struct thread* new_thread = list_entry (list_front (&ready_list),
+                                          struct thread, elem);
+  if (new_thread->priority > cur_thread->priority)
+    thread_yield ();
 }
 
 /* Offset of `stack' member within `struct thread'.

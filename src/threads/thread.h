@@ -148,4 +148,6 @@ int thread_get_load_avg (void);
 void thread_sleep (int64_t, int64_t);
 void thread_wake (int64_t);
 
+bool cmp_pri (struct list_elem*, struct list_elem*, void*);
+
 #endif /* threads/thread.h */
