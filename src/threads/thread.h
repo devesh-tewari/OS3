@@ -16,7 +16,6 @@ enum thread_status
     THREAD_READY,       /* Not running but ready to run. */
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
     THREAD_DYING,       /* About to be destroyed. */
-    //THREAD_SLEEPING     /* Sleeping for a specified amount of ticks. */
   };
 
 /* Thread identifier type.
@@ -93,7 +92,10 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
-    int64_t wake_up_tick;
+    int64_t wake_up_tick;               /* Tick at which thread has to wake up
+                                           after sleeping */
+    int niceness;
+    int recent_cpu;                     /* Rtores real number in 17.14 format */
     struct list_elem sleep_elem;
     struct list_elem allelem;           /* List element for all threads list. */
 

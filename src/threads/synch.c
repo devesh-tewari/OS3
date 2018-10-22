@@ -122,10 +122,10 @@ sema_up (struct semaphore *sema)
   sema->value++;
 
   /* We will check if the newly sema-uped thread (unblocked) can now preempt
-     the CPU only when external interrupts are not running. External interrupts
-     can preempt the CPU even if the interrups are disabled. Not all external
-     interrups are non-maskable though. We assume it's safe for not checking
-     if (!intr_context ()) */
+     the CPU only when external interrupts are not running. Pintos does not
+     handle non-maskable interrupts External interrupts can preempt the CPU
+     even if the interrups are disabled. Not all external interrups are
+     non-maskable though. */
   check_preemption ();
   intr_set_level (old_level);
 }
@@ -314,8 +314,8 @@ cond_wait (struct condition *cond, struct lock *lock)
 bool
 cmp_sema (struct list_elem* s1, struct list_elem* s2, void* aux)
 {
-  struct thread *t1;
-  struct thread *t2;
+  struct thread* t1;
+  struct thread* t2;
   struct semaphore_elem* elem1 = list_entry (s1, struct semaphore_elem, elem);
   struct semaphore_elem* elem2 = list_entry (s2, struct semaphore_elem, elem);
   t1 = list_entry (list_front (&elem1->semaphore.waiters), struct thread, elem);
@@ -342,7 +342,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters))
-    { 
+    {
       list_sort (&cond->waiters, cmp_sema, NULL);
       sema_up (&list_entry (list_pop_front (&cond->waiters),
                             struct semaphore_elem, elem)->semaphore);

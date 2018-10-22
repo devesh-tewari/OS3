@@ -11,7 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-//#include "devices/timer.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -54,6 +54,7 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
+int load_avg = 0;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -71,6 +72,9 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+int calculate_dynamic_priority (void);
+void recalculate_load_avg (void);
+void recalculate_recent_cpu (struct thread *);
 
 bool
 cmp_pri (struct list_elem* a, struct list_elem* b, void* aux)
@@ -110,6 +114,9 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  //
+  initial_thread->recent_cpu = 0;
+  initial_thread->niceness = 0;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -148,9 +155,27 @@ thread_tick (int64_t ticks)
 
   thread_wake (ticks);
 
+  if (t != idle_thread)
+      t->recent_cpu += 1;
+
+  if (thread_mlfqs && (ticks % TIMER_FREQ == 0))
+    {
+      recalculate_load_avg ();
+      thread_foreach (recalculate_recent_cpu, NULL);
+    }
+
+  /*if (ticks % 4 == 0)
+    {
+
+    }*/
+
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
-    intr_yield_on_return ();
+    {
+      if (thread_mlfqs)
+        thread_foreach (calculate_dynamic_priority, NULL);
+      intr_yield_on_return ();
+    }
 }
 
 /* Prints thread statistics. */
@@ -353,9 +378,8 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
-  //thread_current ()->priority = new_priority;
-  enum intr_level old_level = intr_disable ();
   int cur_priority = thread_current ()->priority;
+  enum intr_level old_level = intr_disable ();
   thread_current ()->priority = new_priority;
   if (new_priority < cur_priority)
     check_preemption ();
@@ -371,33 +395,79 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED)
+thread_set_nice (int nice)
 {
-  /* Not yet implemented. */
+  int cur_priority = thread_current ()->priority;
+  enum intr_level old_level = intr_disable ();
+  thread_current ()->niceness = nice;
+  int new_priority = calculate_dynamic_priority ();
+  thread_current ()->priority = new_priority;
+  if (new_priority > cur_priority)
+    check_preemption ();
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void)
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current ()->niceness;
 }
 
-/* Returns 100 times the system load average. */
+/* Returns 100 times the system load average.
+   load_avg has format 17.14 */
 int
 thread_get_load_avg (void)
 {
-  /* Not yet implemented. */
-  return 0;
+  int temp = load_avg;
+  temp *= 100 << 14;
+  if (temp & (1<<13))
+    {
+      if (temp )
+        return temp>>14 + 1;
+      else
+        return temp>>14 -1;
+    }
+  else
+    return temp>>14;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void)
 {
-  /* Not yet implemented. */
-  return 0;
+  int rec_cpu = thread_current ()->recent_cpu;
+  rec_cpu *= 100 << 14;
+  if (rec_cpu & (1<<13))
+    {
+      if (rec_cpu >= 0)
+        return rec_cpu>>14 + 1;
+      else
+        return rec_cpu>>14 -1;
+    }
+  else
+    return rec_cpu>>14;
+}
+
+int
+calculate_dynamic_priority (void)
+{
+  int float_PRI_MAX = PRI_MAX<<14;
+  int float_nice = thread_get_nice ()<<14;
+  int float_pri = float_PRI_MAX - thread_current ()->recent_cpu -
+                  (float_nice<<1);
+
+  /* if fraction part is greater than or equal to 0.5, increment priority by 1
+     after converting to integer format */
+  if (float_pri & (1<<13))
+  {
+    if (float_pri >= 0)
+      return float_pri>>14 + 1;
+    else
+      return float_pri>>14 - 1;
+  }
+  else
+    return float_pri>>14;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -668,6 +738,37 @@ check_preemption (void)
   if (new_thread->priority > cur_thread->priority)
     thread_yield ();
 }
+
+void
+recalculate_load_avg (void)
+{
+  int ready_threads = 0;
+  if (thread_current () != idle_thread)
+    ready_threads++;
+  struct thread* t;
+  if (!list_empty (&ready_list))
+    {
+      for (struct list_elem* e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e))
+        {
+          t = list_entry (e, struct thread, elem);
+          if (t != idle_thread)
+              ready_threads++;
+        }
+    }
+
+  load_avg = ( ((59 << 14) * load_avg) / (60 << 14) ) +
+             ( (ready_threads << 14) / (60 << 14) );
+}
+
+void
+recalculate_recent_cpu (struct thread* t)
+{
+  int temp = (load_avg << 1) / ((load_avg << 1) + 1);
+  temp *= t->recent_cpu;
+  temp += t->niceness;
+  t->recent_cpu = temp;
+}
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
