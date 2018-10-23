@@ -93,10 +93,14 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     int64_t wake_up_tick;               /* Tick at which thread has to wake up
-                                           after sleeping */
-    int niceness;
-    int recent_cpu;                     /* Rtores real number in 17.14 format */
-    struct list_elem sleep_elem;
+                                           after sleeping. */
+    int niceness;                       /* Determines how "nice" the thread
+                                           should be to other threads. */
+    int recent_cpu;                     /* Measures how much CPU time each
+                                           process has received "recently."
+                                           Stored as 17.14 fixed point.*/
+    struct list_elem sleep_elem;        /* List element for sleeping threads
+                                           list. */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */

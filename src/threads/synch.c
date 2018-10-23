@@ -311,6 +311,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   lock_acquire (lock);
 }
 
+/* Comparate for semaphore's waiter list threads where semaphore is inside a
+   semaphore_elem struct. */
 bool
 cmp_sema (struct list_elem* s1, struct list_elem* s2, void* aux)
 {
