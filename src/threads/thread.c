@@ -159,6 +159,7 @@ thread_tick (int64_t ticks)
 
   if (thread_mlfqs && (ticks % TIMER_FREQ == 0))
     {
+      //printf ("ticks: %d\n", ticks);
       recalculate_load_avg ();
       thread_foreach (recalculate_recent_cpu, NULL);
     }
@@ -418,16 +419,16 @@ int
 thread_get_load_avg (void)
 {
   int temp = load_avg;
-  temp *= 100 << 14;
-  if (temp & (1<<13))
-    {
-      if (temp )
-        return temp>>14 + 1;
-      else
-        return temp>>14 -1;
-    }
+  temp *= 100;
+
+  if (temp >= 0)
+    temp += 1<<13;
   else
-    return temp>>14;
+    temp -= 1<<13;
+
+  //printf ("\nat: %d\n",timer_ticks());
+  //printf ("\ntemp: %d",temp>>14);
+  return temp>>14;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -435,16 +436,14 @@ int
 thread_get_recent_cpu (void)
 {
   int rec_cpu = thread_current ()->recent_cpu;
-  rec_cpu *= 100 << 14;
-  if (rec_cpu & (1<<13))
-    {
-      if (rec_cpu >= 0)
-        return rec_cpu>>14 + 1;
-      else
-        return rec_cpu>>14 -1;
-    }
+  rec_cpu *= 100;
+
+  if (rec_cpu >= 0)
+    rec_cpu += 1<<13;
   else
-    return rec_cpu>>14;
+    rec_cpu -= 1<<13;
+
+  return rec_cpu>>14;
 }
 
 int
@@ -569,7 +568,7 @@ init_thread (struct thread *t, const char *name, int priority)
       if (t == initial_thread)
         t->recent_cpu = 0;
       else
-        t->recent_cpu = thread_get_recent_cpu () << 14;
+        t->recent_cpu = thread_current ()->recent_cpu;
     }
 
   old_level = intr_disable ();
@@ -760,14 +759,21 @@ recalculate_load_avg (void)
   if (thread_current () != idle_thread)
     ready_threads++;
 
+  //ready_threads += list_size ();
   if (!list_empty (&ready_list))
     {
       for (struct list_elem* e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e))
-        ready_threads++;
+        {
+          struct thread *t = list_entry (e, struct thread, elem);
+          if (t != idle_thread)
+            ready_threads++;
+        }
     }
 
-  load_avg = ( (int64_t)((int64_t)(59 << 14) * load_avg) / (60 << 14) ) +
-             ( (int64_t)(ready_threads << 14) / (60 << 14) );
+  load_avg = ( (59 * load_avg) + (ready_threads << 14) ) / 60;
+
+  //printf ("readyThreads: %d\n", ready_threads);
+  //printf ("loadavg: %d\n\n",load_avg);
 }
 
 void
@@ -775,8 +781,8 @@ recalculate_recent_cpu (struct thread* t)
 {
   if (t == idle_thread)
     return;
-  int temp = (int64_t)(load_avg << 1) / ((load_avg << 1) + 1);
-  temp = (int64_t)temp * t->recent_cpu;
+  int temp = ( (int64_t)(load_avg << 1) / ( (load_avg << 1) + (1 << 14) ) >> 14 );
+  temp = ( (int64_t)temp * t->recent_cpu ) >> 14;
   temp += t->niceness << 14;
   t->recent_cpu = temp;
 }
