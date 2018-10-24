@@ -5,8 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 
-/* List of processes in THREAD_BLOCK state, that is, processes
-   that are ready to run but not actually running. */
+/* List of processes that are sleeping, that is, processes
+   that are not ready to run until they wake up. */
 static struct list sleep_list;
 
 /* States in a thread's life cycle. */

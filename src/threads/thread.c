@@ -457,12 +457,11 @@ calculate_dynamic_priority (struct thread* t)
   int float_nice = t->niceness << 14;
   int float_pri = (float_PRI_MAX) - (t->recent_cpu >> 2) - (float_nice << 1);
 
-  /* if fraction part is greater than or equal to 0.5, increment priority by 1
-     after converting to integer format */
+  /* Round off priority to the nearest integer. */
   if (float_pri >= 0)
-      float_pri += 1<<13;
+    float_pri += 1<<13;
   else
-      float_pri -= 1<<13;
+    float_pri -= 1<<13;
 
   t->priority = float_pri >> 14;
 
@@ -564,11 +563,14 @@ init_thread (struct thread *t, const char *name, int priority)
 
   if (thread_mlfqs)
     {
-      t->niceness = 0;
+      /* recent_cpu is assigned 0 to initial thread, and parent's value to all
+         other threads. */
       if (t == initial_thread)
         t->recent_cpu = 0;
       else
         t->recent_cpu = thread_current ()->recent_cpu;
+
+      t->niceness = 0;
     }
 
   old_level = intr_disable ();
@@ -704,8 +706,6 @@ cmp (struct list_elem* sleeping_elem, struct list_elem* e, void* aux)
 void
 thread_sleep (int64_t start, int64_t ticks)
 {
-  ASSERT (intr_get_level () == INTR_ON);
-
   struct thread * current_th;
   enum intr_level old_level = intr_disable();
 	struct list_elem *current_list_elem;
@@ -728,8 +728,6 @@ thread_wake (int64_t ticks)
   while (!list_empty (&sleep_list))
     {
       struct list_elem *el;
-
-      ASSERT (intr_get_level () == INTR_OFF);
 
       el = list_begin (&sleep_list);
       struct thread *sleeping_thread = list_entry (el, struct thread,
@@ -788,8 +786,8 @@ recalculate_recent_cpu (struct thread* t)
   if (t == idle_thread)
     return;
 
-  int temp = ( (int64_t)(load_avg << 1) << 14 ) /
-             ( (load_avg << 1) + (1 << 14) );
+  int temp = ( (int64_t)(load_avg << 1) << 14 ) /    // Calculating the decay
+             ( (load_avg << 1) + (1 << 14) );        // factor.
 
   temp = ( (int64_t)temp * t->recent_cpu ) >> 14;
   temp += t->niceness << 14;
